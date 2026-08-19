@@ -124,7 +124,7 @@ async def on_message(message):
             reply_msg = await message.channel.send("No triggers set yet.")
         else:
             faq_list = "\n".join([f"`{k}`" for k in list(AUTO_REPLIES.keys())[:20]]) # show first 20
-            reply_msg = await message.channel.send(reply) {len(AUTO_REPLIES)} Triggers**\n{faq_list}\n...and more")
+            reply_msg = await message.channel.send(reply)
         asyncio.create_task(delete_after(reply_msg, 20))
 
     # AUTO REPLY
