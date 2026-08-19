@@ -28,7 +28,7 @@ AUTO_REPLIES = load_faq()
 
 def save_faq():
     with open(FAQ_FILE, 'w', encoding='utf-8') as f:
-        json.dump(AUTO_REPLIES, f, indent=2, ensure_ascii=False) # FIX 1: was saving wrong variable
+        json.dump(AUTO_REPLIES, f, indent=2, ensure_ascii=False)
 
 def is_admin(member):
     return member.guild_permissions.administrator or member.guild_permissions.manage_guild
@@ -61,7 +61,7 @@ async def on_message(message):
             trigger, reply = rest.split('|', 1)
             AUTO_REPLIES[trigger.strip()] = reply.strip()
             save_faq()
-            await message.delete() # delete command
+            await message.delete()
         except: pass
         return
 
@@ -89,7 +89,7 @@ async def on_message(message):
         await message.delete()
         return
 
-    # LIST COMMAND - FIX 2
+    # LIST COMMAND
     elif msg == '!help':
         if not AUTO_REPLIES:
             reply_msg = await message.channel.send("No triggers set yet.")
@@ -103,7 +103,7 @@ async def on_message(message):
     else:
         for trigger, reply in AUTO_REPLIES.items():
             if trigger.lower() in msg.lower():
-                reply_msg = await message.channel.send(reply) # FIX 3: ONLY raw words
+                reply_msg = await message.channel.send(reply)
                 asyncio.create_task(delete_after(message, 10))
                 asyncio.create_task(delete_after(reply_msg, 10))
                 return
