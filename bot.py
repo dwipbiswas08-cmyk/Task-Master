@@ -140,4 +140,4 @@ async def on_message(message):
                 break
 
 # 5. RUN THE BOT
-client.run(os.environ['MTUzOTMxNjA0MDcxNzMxMjE3NA.GAWXRW.fHDUPVjwT9jq3SueubYbunp2rBlHYR1L06w3-U'])
+client.run(os.environ['TOKEN'])
