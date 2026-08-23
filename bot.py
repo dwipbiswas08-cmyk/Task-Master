@@ -13,12 +13,10 @@ ALLOWED_CHANNEL_ID = 1538465015135346768
 UNANSWERED_CHANNEL_ID = 1540997587740532746
 
 # Subscription settings
-# Create a Discord role with this exact name and give it permission to view
-# the private channel(s) you want subscribers to access.
 SUBSCRIBER_ROLE_NAME = "Subscriber"
 SUBSCRIPTION_CHECK_INTERVAL = 60  # seconds
 SUBSCRIPTION_EXPIRY_WARNING_HOURS = 24
-SUBSCRIPTION_ADMIN_CHANNEL_ID = 0  # Set to your private admin channel ID; 0 = any admin command channel
+SUBSCRIPTION_ADMIN_CHANNEL_ID = 1541051937011667035
 
 COOLDOWN_SECONDS = 2
 FUZZY_THRESHOLD = 0.82
@@ -68,7 +66,8 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     last_warning_sent TEXT
 )
 """)
-# Upgrade an older subscriptions table if this bot had one before.
+
+# Safe migration if an older subscription table already exists.
 try:
     cursor.execute("ALTER TABLE subscriptions ADD COLUMN created_at TEXT")
 except sqlite3.OperationalError:
@@ -145,14 +144,6 @@ def is_admin(member):
         member.guild_permissions.administrator
         or member.guild_permissions.manage_guild
     )
-
-def subscription_command_allowed(message):
-    if not is_admin(message.author):
-        return False
-    if SUBSCRIPTION_ADMIN_CHANNEL_ID and message.channel.id != SUBSCRIPTION_ADMIN_CHANNEL_ID:
-        return False
-    return True
-
 
 async def delete_after(message, seconds=10):
     await asyncio.sleep(seconds)
@@ -240,10 +231,17 @@ def get_subscription(user_id, guild_id):
     return cursor.fetchone()
 
 
-def set_subscription(user_id, guild_id, expires_at, created_at=None):
-    if created_at is None:
-        created_at = datetime.now()
+def subscription_expired(subscription):
+    if not subscription:
+        return True
+    try:
+        return datetime.fromisoformat(subscription["expires_at"]) <= datetime.now()
+    except (ValueError, TypeError):
+        return True
 
+
+def set_subscription(user_id, guild_id, expires_at, created_at=None):
+    created_at = created_at or datetime.now()
     cursor.execute(
         """
         INSERT INTO subscriptions
@@ -264,6 +262,7 @@ def set_subscription(user_id, guild_id, expires_at, created_at=None):
     )
     db.commit()
 
+
 def remove_subscription(user_id, guild_id):
     cursor.execute(
         "DELETE FROM subscriptions WHERE user_id = ? AND guild_id = ?",
@@ -272,38 +271,34 @@ def remove_subscription(user_id, guild_id):
     db.commit()
 
 
-def subscription_expired(subscription):
-    if not subscription:
-        return True
-    try:
-        return datetime.fromisoformat(subscription["expires_at"]) <= datetime.now()
-    except (ValueError, TypeError):
-        return True
+def subscription_command_allowed(message):
+    if not is_admin(message.author):
+        return False
+    return (
+        not SUBSCRIPTION_ADMIN_CHANNEL_ID
+        or message.channel.id == SUBSCRIPTION_ADMIN_CHANNEL_ID
+    )
 
 
 async def send_subscription_warning(member, expires_at):
-    """Send a private warning once when about 24 hours remain."""
     subscription = get_subscription(member.id, member.guild.id)
-    if not subscription:
+    if not subscription or subscription["last_warning_sent"]:
         return
 
     remaining = expires_at - datetime.now()
     if remaining.total_seconds() <= 0:
         return
-
     if remaining.total_seconds() > SUBSCRIPTION_EXPIRY_WARNING_HOURS * 3600:
         return
 
-    last_warning = subscription["last_warning_sent"]
-    if last_warning:
-        return
+    hours = max(1, int(remaining.total_seconds() // 3600))
 
     try:
         embed = discord.Embed(
             title="⏰ Subscription Expiring Soon",
             description=(
-                f"Your **{SUBSCRIBER_ROLE_NAME}** access expires in approximately "
-                f"**{max(1, int(remaining.total_seconds() // 3600))} hour(s)**."
+                f"Your **{SUBSCRIBER_ROLE_NAME}** access expires in "
+                f"approximately **{hours} hour(s)**."
             ),
             color=discord.Color.orange()
         )
@@ -313,23 +308,17 @@ async def send_subscription_warning(member, expires_at):
             inline=False
         )
         embed.set_footer(text="Contact an administrator if you need a renewal.")
-
         await member.send(embed=embed)
-
-        cursor.execute(
-            "UPDATE subscriptions SET last_warning_sent = ? WHERE user_id = ?",
-            (datetime.now().isoformat(), member.id)
-        )
-        db.commit()
     except discord.Forbidden:
-        # DMs disabled; don't repeatedly try every minute.
-        cursor.execute(
-            "UPDATE subscriptions SET last_warning_sent = ? WHERE user_id = ?",
-            (datetime.now().isoformat(), member.id)
-        )
-        db.commit()
+        pass
     except Exception as e:
-        print("SUBSCRIPTION WARNING ERROR:", e)
+        print("SUBSCRIPTION WARNING DM ERROR:", e)
+
+    cursor.execute(
+        "UPDATE subscriptions SET last_warning_sent = ? WHERE user_id = ?",
+        (datetime.now().isoformat(), member.id)
+    )
+    db.commit()
 
 
 async def notify_subscription_expired(member):
@@ -337,8 +326,8 @@ async def notify_subscription_expired(member):
         embed = discord.Embed(
             title="🔒 Subscription Expired",
             description=(
-                f"Your **{SUBSCRIBER_ROLE_NAME}** access has expired. "
-                "Your private channel access has been removed."
+                f"Your **{SUBSCRIBER_ROLE_NAME}** access has expired and "
+                "your private channel access has been removed."
             ),
             color=discord.Color.red()
         )
@@ -350,7 +339,6 @@ async def notify_subscription_expired(member):
 
 
 async def remove_expired_subscriptions():
-    """Remove the Subscriber role from users whose subscription has expired."""
     cursor.execute("SELECT * FROM subscriptions")
     subscriptions = cursor.fetchall()
 
@@ -359,8 +347,8 @@ async def remove_expired_subscriptions():
         if not guild:
             continue
 
-        role = get_subscriber_role(guild)
         member = guild.get_member(subscription["user_id"])
+        role = get_subscriber_role(guild)
 
         if not subscription_expired(subscription):
             if member:
@@ -368,17 +356,11 @@ async def remove_expired_subscriptions():
                 await send_subscription_warning(member, expires_at)
             continue
 
-        if role and member and role in member.roles:
+        if member and role and role in member.roles:
             try:
-                await member.remove_roles(
-                    role,
-                    reason="Subscription expired"
-                )
+                await member.remove_roles(role, reason="Subscription expired")
             except discord.HTTPException as e:
-                print(
-                    f"Could not remove expired Subscriber role "
-                    f"from {subscription['user_id']}: {e}"
-                )
+                print(f"Could not remove Subscriber role from {member.id}: {e}")
 
         if member:
             await notify_subscription_expired(member)
@@ -393,7 +375,6 @@ async def subscription_expiry_loop():
             await remove_expired_subscriptions()
         except Exception as e:
             print("SUBSCRIPTION CHECK ERROR:", e)
-
         await asyncio.sleep(SUBSCRIPTION_CHECK_INTERVAL)
 
 
@@ -461,6 +442,43 @@ async def on_raw_reaction_add(payload):
         except:
             pass
 
+def split_discord_text(text, limit=1900):
+    """Split text into Discord-safe chunks without exceeding the message limit."""
+    chunks = []
+    current = ""
+
+    for line in text.splitlines(keepends=True):
+        if len(current) + len(line) <= limit:
+            current += line
+            continue
+
+        if current:
+            chunks.append(current.rstrip())
+            current = ""
+
+        while len(line) > limit:
+            chunks.append(line[:limit].rstrip())
+            line = line[limit:]
+
+        current = line
+
+    if current.strip():
+        chunks.append(current.rstrip())
+
+    return chunks or [""]
+
+
+async def send_long_text(channel, text, delete_seconds=None):
+    """Send arbitrarily long text as multiple Discord-safe messages."""
+    sent = []
+    for chunk in split_discord_text(text):
+        msg = await channel.send(chunk)
+        sent.append(msg)
+        if delete_seconds:
+            asyncio.create_task(delete_after(msg, delete_seconds))
+    return sent
+
+
 @client.event
 async def on_message(message):
     if message.author.bot:
@@ -472,6 +490,60 @@ async def on_message(message):
     msg = message.content.strip()
 
     # ---------------- SUBSCRIPTION COMMANDS ----------------
+
+    # Members can check their own subscription anywhere the bot listens.
+    if msg.lower() in ("!mysubscription", "!my-subscription"):
+        subscription = get_subscription(message.author.id, message.guild.id)
+
+        if not subscription or subscription_expired(subscription):
+            embed = discord.Embed(
+                title="🔴 No Active Subscription",
+                description=(
+                    "You currently do not have an active subscription.\n\n"
+                    "If you believe this is incorrect, please contact an administrator."
+                ),
+                color=discord.Color.red()
+            )
+            embed.add_field(
+                name="Access",
+                value="🔒 Subscriber access is inactive.",
+                inline=False
+            )
+        else:
+            expires_at = datetime.fromisoformat(subscription["expires_at"])
+            remaining = expires_at - datetime.now()
+            seconds = max(0, int(remaining.total_seconds()))
+            days_left = seconds // 86400
+            hours_left = (seconds % 86400) // 3600
+            minutes_left = (seconds % 3600) // 60
+
+            embed = discord.Embed(
+                title="📋 Your Subscription",
+                description="Your Subscriber access is currently active.",
+                color=discord.Color.green()
+            )
+            embed.add_field(name="Status", value="🟢 Active", inline=True)
+            embed.add_field(
+                name="Time Remaining",
+                value=f"**{days_left}d {hours_left}h {minutes_left}m**",
+                inline=True
+            )
+            embed.add_field(
+                name="Expires",
+                value=expires_at.strftime("%d %b %Y, %I:%M %p"),
+                inline=False
+            )
+            embed.add_field(
+                name="Channel Access",
+                value="🔓 Subscriber access is active.",
+                inline=False
+            )
+            embed.set_footer(text="Use !mysubscription anytime to check your status.")
+
+        reply = await message.channel.send(embed=embed)
+        asyncio.create_task(delete_after(reply, 12))
+        return
+
     if msg.startswith("!subscribe "):
         if not subscription_command_allowed(message):
             return
@@ -497,8 +569,8 @@ async def on_message(message):
             return
 
         member = message.mentions[0]
-
         role = get_subscriber_role(message.guild)
+
         if role is None:
             try:
                 role = await message.guild.create_role(
@@ -508,7 +580,7 @@ async def on_message(message):
             except discord.Forbidden:
                 reply = await message.channel.send(
                     "❌ I can't create the Subscriber role. "
-                    "Give me **Manage Roles** permission."
+                    "Give the bot **Manage Roles** permission."
                 )
                 asyncio.create_task(delete_after(reply, 8))
                 return
@@ -519,48 +591,42 @@ async def on_message(message):
         if existing and not subscription_expired(existing):
             old_expiry = datetime.fromisoformat(existing["expires_at"])
             expires_at = old_expiry + timedelta(days=days)
-            action = "renewed"
+            action = "Renewed"
         else:
             expires_at = now + timedelta(days=days)
-            action = "activated"
+            action = "Activated"
 
-        set_subscription(
-            member.id,
-            message.guild.id,
-            expires_at,
-            created_at=(
-                datetime.fromisoformat(existing["created_at"])
-                if existing and existing["created_at"] else now
-            )
+        created_at = (
+            datetime.fromisoformat(existing["created_at"])
+            if existing and existing["created_at"] else now
         )
+        set_subscription(member.id, message.guild.id, expires_at, created_at)
 
         try:
             await member.add_roles(
                 role,
-                reason=f"Subscription {action} until {expires_at.isoformat()}"
+                reason=f"Subscription active until {expires_at.isoformat()}"
             )
         except discord.Forbidden:
             remove_subscription(member.id, message.guild.id)
             reply = await message.channel.send(
                 "❌ I couldn't assign the Subscriber role.\n"
-                "Make sure my bot's role is **above** the Subscriber role."
+                "Make sure the bot's role is **above** the Subscriber role."
             )
             asyncio.create_task(delete_after(reply, 8))
             return
 
         embed = discord.Embed(
-            title="✅ Subscription Activated",
+            title=f"✅ Subscription {action}",
             color=discord.Color.green()
         )
         embed.add_field(name="Member", value=member.mention, inline=True)
-        embed.add_field(name="Duration Added", value=f"{days} day(s)", inline=True)
+        embed.add_field(name="Days Added", value=str(days), inline=True)
         embed.add_field(
             name="Expires",
             value=expires_at.strftime("%d %b %Y, %I:%M %p"),
             inline=False
         )
-        embed.set_footer(text="Subscriber access is controlled by the Subscriber role.")
-
         reply = await message.channel.send(embed=embed)
         await message.delete()
         asyncio.create_task(delete_after(reply, 12))
@@ -579,7 +645,6 @@ async def on_message(message):
 
         member = message.mentions[0]
         role = get_subscriber_role(message.guild)
-
         remove_subscription(member.id, message.guild.id)
 
         if role and role in member.roles:
@@ -590,77 +655,20 @@ async def on_message(message):
                 )
             except discord.Forbidden:
                 reply = await message.channel.send(
-                    "⚠️ Database subscription removed, but I couldn't remove "
-                    "the Discord role. Check my **Manage Roles** permission."
+                    "⚠️ Subscription removed from the database, but I couldn't "
+                    "remove the Discord role. Check **Manage Roles**."
                 )
                 asyncio.create_task(delete_after(reply, 8))
                 return
 
         embed = discord.Embed(
             title="🔒 Subscription Removed",
-            description=f"Access has been removed from {member.mention}.",
+            description=f"Subscriber access has been removed from {member.mention}.",
             color=discord.Color.red()
         )
         reply = await message.channel.send(embed=embed)
         await message.delete()
         asyncio.create_task(delete_after(reply, 8))
-        return
-
-    # Member self-check: available to everyone.
-    if msg.lower() in ("!mysubscription", "!my-subscription"):
-        subscription = get_subscription(message.author.id, message.guild.id)
-
-        if not subscription or subscription_expired(subscription):
-            embed = discord.Embed(
-                title="🔴 No Active Subscription",
-                description=(
-                    "You currently do not have an active subscription.\n\n"
-                    "If you believe this is incorrect, please contact an administrator."
-                ),
-                color=discord.Color.red()
-            )
-            embed.add_field(
-                name="Access",
-                value="🔒 Subscriber access is inactive.",
-                inline=False
-            )
-        else:
-            expires_at = datetime.fromisoformat(subscription["expires_at"])
-            remaining = expires_at - datetime.now()
-            total_seconds = max(0, int(remaining.total_seconds()))
-            days_left = total_seconds // 86400
-            hours_left = (total_seconds % 86400) // 3600
-            minutes_left = (total_seconds % 3600) // 60
-
-            embed = discord.Embed(
-                title="📋 Your Subscription",
-                description="Your Subscriber access is currently active.",
-                color=discord.Color.green()
-            )
-            embed.add_field(
-                name="Status",
-                value="🟢 Active",
-                inline=True
-            )
-            embed.add_field(
-                name="Time Remaining",
-                value=f"**{days_left}d {hours_left}h {minutes_left}m**",
-                inline=True
-            )
-            embed.add_field(
-                name="Expires",
-                value=expires_at.strftime("%d %b %Y, %I:%M %p"),
-                inline=False
-            )
-            embed.add_field(
-                name="Channel Access",
-                value="🔓 Subscriber access is active.",
-                inline=False
-            )
-            embed.set_footer(text="Use !mysubscription anytime to check your status.")
-
-        reply = await message.channel.send(embed=embed)
-        asyncio.create_task(delete_after(reply, 12))
         return
 
     if msg.startswith("!subscription "):
@@ -679,30 +687,26 @@ async def on_message(message):
 
         if not subscription or subscription_expired(subscription):
             embed = discord.Embed(
-                title="ℹ️ No Active Subscription",
+                title="🔴 No Active Subscription",
                 description=f"{member.mention} has no active subscription.",
-                color=discord.Color.orange()
+                color=discord.Color.red()
             )
         else:
             expires_at = datetime.fromisoformat(subscription["expires_at"])
             remaining = expires_at - datetime.now()
-            total_seconds = max(0, int(remaining.total_seconds()))
-            days_left = total_seconds // 86400
-            hours_left = (total_seconds % 86400) // 3600
-            minutes_left = (total_seconds % 3600) // 60
+            seconds = max(0, int(remaining.total_seconds()))
+            days_left = seconds // 86400
+            hours_left = (seconds % 86400) // 3600
+            minutes_left = (seconds % 3600) // 60
 
             embed = discord.Embed(
                 title="📋 Subscription Details",
                 color=discord.Color.blue()
             )
             embed.add_field(name="Member", value=member.mention, inline=False)
+            embed.add_field(name="Status", value="🟢 Active", inline=True)
             embed.add_field(
-                name="Status",
-                value="🟢 Active",
-                inline=True
-            )
-            embed.add_field(
-                name="Time Remaining",
+                name="Remaining",
                 value=f"**{days_left}d {hours_left}h {minutes_left}m**",
                 inline=True
             )
@@ -746,6 +750,26 @@ async def on_message(message):
         return
 
     # --------------------------------------------------------
+
+    if msg == "!triggers":
+        cursor.execute("SELECT trigger FROM faqs ORDER BY id")
+        triggers_list = cursor.fetchall()
+
+        if not triggers_list:
+            reply = await message.channel.send("No FAQ triggers found.")
+            asyncio.create_task(delete_after(reply, 8))
+            return
+
+        faq_list = "\n".join(
+            f"{i}. {row['trigger']}"
+            for i, row in enumerate(triggers_list, start=1)
+        )
+        await send_long_text(
+            message.channel,
+            f"**{len(triggers_list)} Triggers**\n{faq_list}",
+            delete_seconds=20
+        )
+        return
 
     if msg.startswith("!add "):
         if not is_admin(message.author):
@@ -876,12 +900,12 @@ async def on_message(message):
                 "**!export**\nExport FAQs as JSON.\n\n"
                 "**!backup**\nCreate a backup.\n\n"
                 "**!stats**\nView usage and feedback statistics.\n\n"
-                "**!unanswered**\nView unanswered questions.\n\n"
-                "**!subscribe @user DAYS**\nActivate or extend channel access.\n\n"
-                "**!unsubscribe @user**\nImmediately remove access.\n\n"
-                "**!subscription @user**\nView status and expiry.\n\n"
-                "**!subscribers**\nList all active subscribers.\n\n"
-                "**!mysubscription**\nCheck your own subscription status.\n\n"
+                "**!unanswered**\nView unanswered questions.\n\n**!triggers**\nList all FAQ triggers.\n\n"
+                "**!subscribe @user DAYS**\nActivate or extend Subscriber access.\n\n"
+                "**!unsubscribe @user**\nRemove Subscriber access.\n\n"
+                "**!subscription @user**\nView a member's subscription.\n\n"
+                "**!subscribers**\nList active subscribers.\n\n"
+                "**!mysubscription**\nCheck your own subscription.\n\n"
                 f"Total FAQs: **{count}**"
             ),
             color=discord.Color.blue()
