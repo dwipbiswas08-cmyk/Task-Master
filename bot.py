@@ -5,7 +5,6 @@ import asyncio
 import difflib
 import json
 import time
-import re
 from datetime import datetime, timedelta
 
 TOKEN = os.environ["TOKEN"]
@@ -22,9 +21,7 @@ SUBSCRIPTION_EXPIRY_WARNING_HOURS = 24
 SUBSCRIPTION_ADMIN_CHANNEL_ID = 0  # Set to your private admin channel ID; 0 = any admin command channel
 
 COOLDOWN_SECONDS = 2
-FUZZY_THRESHOLD = 0.90
-FUZZY_MARGIN = 0.08
-MIN_WORD_OVERLAP = 0.50
+FUZZY_THRESHOLD = 0.82
 
 DATABASE_FILE = "faq.db"
 BACKUP_FOLDER = "backups"
@@ -108,103 +105,38 @@ def load_default_faqs():
 
 load_default_faqs()
 
-# One-time FAQ restoration helper.
-# Put faq_backup_20260824_022617.json beside bot.py before deployment.
-# This restores any FAQ entries from the backup that are missing from faq.db.
-RESTORE_BACKUP_FILE = "faq_backup_20260824_022617.json"
-RESTORE_BACKUP_ON_START = True
-
-def restore_faq_backup():
-    if not RESTORE_BACKUP_ON_START or not os.path.exists(RESTORE_BACKUP_FILE):
-        return
-    try:
-        with open(RESTORE_BACKUP_FILE, "r", encoding="utf-8") as f:
-            backup = json.load(f)
-
-        if not isinstance(backup, dict):
-            print("FAQ backup restore skipped: backup is not a dictionary.")
-            return
-
-        restored = 0
-        skipped = 0
-        for trigger, answer in backup.items():
-            if not isinstance(trigger, str) or not isinstance(answer, str):
-                skipped += 1
-                continue
-            trigger = trigger.strip()
-            answer = answer.strip()
-            if not trigger or not answer:
-                skipped += 1
-                continue
-
-            cursor.execute("SELECT id FROM faqs WHERE trigger = ?", (trigger,))
-            if cursor.fetchone() is None:
-                cursor.execute(
-                    "INSERT INTO faqs (trigger, answer, created_at) VALUES (?, ?, ?)",
-                    (trigger, answer, datetime.now().isoformat())
-                )
-                restored += 1
-
-        db.commit()
-        cursor.execute("SELECT COUNT(*) AS count FROM faqs")
-        total = cursor.fetchone()["count"]
-        print(f"FAQ backup restore: added {restored}, skipped {skipped}, total FAQs: {total}")
-    except Exception as e:
-        print(f"FAQ backup restore failed: {e}")
-
-restore_faq_backup()
-
 def normalize_text(text):
-    text = str(text).lower().strip().replace("```", "").replace("`", "")
-    replacements = {"\u2018":"'", "\u2019":"'", "\u201c":'"', "\u201d":'"',
-                    "\u2013":"-", "\u2014":"-", "\u00a0":" "}
-    for old, new in replacements.items():
-        text = text.replace(old, new)
-    text = re.sub(r"[^\w\s]", " ", text, flags=re.UNICODE)
+    text = text.lower().strip()
+    punctuation = ".,!?;:\"'()[]{}"
+    for char in punctuation:
+        text = text.replace(char, "")
     return " ".join(text.split())
 
-
-def word_set(text):
-    return set(normalize_text(text).split())
-
-
 def fuzzy_score(a, b):
-    na, nb = normalize_text(a), normalize_text(b)
-    sequence = difflib.SequenceMatcher(None, na, nb).ratio()
-    wa, wb = word_set(a), word_set(b)
-    overlap = len(wa & wb) / max(len(wa), len(wb)) if wa and wb else 0.0
-    return sequence * 0.70 + overlap * 0.30, sequence, overlap
-
+    return difflib.SequenceMatcher(None, normalize_text(a), normalize_text(b)).ratio()
 
 def find_faq(question):
-    cursor.execute("SELECT * FROM faqs ORDER BY id")
+    cursor.execute("SELECT * FROM faqs")
     faqs = cursor.fetchall()
-    nq = normalize_text(question)
+    normalized_question = normalize_text(question)
 
     for faq in faqs:
-        if nq == normalize_text(faq["trigger"]):
+        if normalized_question == normalize_text(faq["trigger"]):
             return faq, 1.0
 
-    candidates = []
+    best_faq = None
+    best_score = 0
+
     for faq in faqs:
-        score, sequence, overlap = fuzzy_score(question, faq["trigger"])
-        candidates.append((score, sequence, overlap, faq))
+        score = fuzzy_score(question, faq["trigger"])
+        if score > best_score:
+            best_score = score
+            best_faq = faq
 
-    if not candidates:
-        return None, 0.0
-
-    candidates.sort(key=lambda x: x[0], reverse=True)
-    best_score, best_sequence, best_overlap, best_faq = candidates[0]
-    second_score = candidates[1][0] if len(candidates) > 1 else 0.0
-
-    if (best_score >= FUZZY_THRESHOLD
-        and best_sequence >= 0.86
-        and best_overlap >= MIN_WORD_OVERLAP
-        and best_score - second_score >= FUZZY_MARGIN):
+    if best_score >= FUZZY_THRESHOLD:
         return best_faq, best_score
 
     return None, best_score
-
 
 def is_admin(member):
     if not isinstance(member, discord.Member):
@@ -534,12 +466,12 @@ async def on_message(message):
     if message.author.bot:
         return
 
-    if message.channel.id != ALLOWED_CHANNEL_ID:
-        return
-
     msg = message.content.strip()
 
     # ---------------- SUBSCRIPTION COMMANDS ----------------
+    # Subscription commands are intentionally handled before the FAQ-channel
+    # restriction so admins can manage subscriptions from the configured
+    # subscription channel, while !mysubscription works anywhere.
     if msg.startswith("!subscribe "):
         if not subscription_command_allowed(message):
             return
@@ -815,6 +747,10 @@ async def on_message(message):
 
     # --------------------------------------------------------
 
+    # Everything below this point is restricted to the configured FAQ channel.
+    if message.channel.id != ALLOWED_CHANNEL_ID:
+        return
+
     if msg.startswith("!add "):
         if not is_admin(message.author):
             return
@@ -870,50 +806,28 @@ async def on_message(message):
         if not is_admin(message.author):
             return
 
-        lines = msg.splitlines()[1:]
-        imported = duplicates = invalid = 0
-        details = []
+        lines = msg.split("\n")[1:]
+        imported = 0
+        duplicates = 0
 
-        for line_number, raw_line in enumerate(lines, start=1):
-            line = raw_line.strip()
-            if line.startswith("```text"):
-                line = line[7:].strip()
-            elif line.startswith("```"):
-                line = line[3:].strip()
-            if line.endswith("```"):
-                line = line[:-3].strip()
-            if not line:
-                continue
-
+        for line in lines:
             if "|" not in line:
-                invalid += 1
-                details.append(f"Line {line_number}: missing |")
                 continue
-
-            trigger, answer = (x.strip() for x in line.split("|", 1))
-            if not trigger or not answer:
-                invalid += 1
-                details.append(f"Line {line_number}: empty question/answer")
-                continue
-
-            if add_faq(trigger, answer):
-                imported += 1
-            else:
-                duplicates += 1
-                details.append(f"Line {line_number}: duplicate trigger")
-
-        report = (f"📥 **Import complete**\n"
-                  f"✅ Imported: **{imported}**\n"
-                  f"⚠️ Duplicates skipped: **{duplicates}**\n"
-                  f"❌ Invalid lines skipped: **{invalid}**")
-        if details:
-            report += "\n\n**Details:**\n" + "\n".join("• " + x for x in details[:8])
-            if len(details) > 8:
-                report += f"\n• ...and {len(details)-8} more."
+            try:
+                trigger, answer = line.split("|", 1)
+                if add_faq(trigger, answer):
+                    imported += 1
+                else:
+                    duplicates += 1
+            except:
+                pass
 
         await message.delete()
-        reply = await message.channel.send(report[:1950])
-        asyncio.create_task(delete_after(reply, 10))
+        reply = await message.channel.send(
+            f"📥 Imported **{imported}** FAQs.\n"
+            f"⚠️ Duplicates skipped: **{duplicates}**"
+        )
+        asyncio.create_task(delete_after(reply, 5))
         return
 
     if msg == "!export":
@@ -1065,7 +979,6 @@ async def on_message(message):
         increment_usage(faq["id"])
 
         embed = discord.Embed(
-            title="❓ " + faq["trigger"][:256],
             description=faq["answer"],
             color=discord.Color.green()
         )
