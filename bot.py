@@ -108,6 +108,52 @@ def load_default_faqs():
 
 load_default_faqs()
 
+# One-time FAQ restoration helper.
+# Put faq_backup_20260824_022617.json beside bot.py before deployment.
+# This restores any FAQ entries from the backup that are missing from faq.db.
+RESTORE_BACKUP_FILE = "faq_backup_20260824_022617.json"
+RESTORE_BACKUP_ON_START = True
+
+def restore_faq_backup():
+    if not RESTORE_BACKUP_ON_START or not os.path.exists(RESTORE_BACKUP_FILE):
+        return
+    try:
+        with open(RESTORE_BACKUP_FILE, "r", encoding="utf-8") as f:
+            backup = json.load(f)
+
+        if not isinstance(backup, dict):
+            print("FAQ backup restore skipped: backup is not a dictionary.")
+            return
+
+        restored = 0
+        skipped = 0
+        for trigger, answer in backup.items():
+            if not isinstance(trigger, str) or not isinstance(answer, str):
+                skipped += 1
+                continue
+            trigger = trigger.strip()
+            answer = answer.strip()
+            if not trigger or not answer:
+                skipped += 1
+                continue
+
+            cursor.execute("SELECT id FROM faqs WHERE trigger = ?", (trigger,))
+            if cursor.fetchone() is None:
+                cursor.execute(
+                    "INSERT INTO faqs (trigger, answer, created_at) VALUES (?, ?, ?)",
+                    (trigger, answer, datetime.now().isoformat())
+                )
+                restored += 1
+
+        db.commit()
+        cursor.execute("SELECT COUNT(*) AS count FROM faqs")
+        total = cursor.fetchone()["count"]
+        print(f"FAQ backup restore: added {restored}, skipped {skipped}, total FAQs: {total}")
+    except Exception as e:
+        print(f"FAQ backup restore failed: {e}")
+
+restore_faq_backup()
+
 def normalize_text(text):
     text = str(text).lower().strip().replace("```", "").replace("`", "")
     replacements = {"\u2018":"'", "\u2019":"'", "\u201c":'"', "\u201d":'"',
