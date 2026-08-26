@@ -1,7 +1,6 @@
 import discord
 import sqlite3
 import os
-import shutil
 import asyncio
 import difflib
 import json
@@ -27,14 +26,7 @@ FUZZY_THRESHOLD = 0.90
 FUZZY_MARGIN = 0.08
 MIN_WORD_OVERLAP = 0.50
 
-# Persist the SQLite database on the Railway Volume mounted at /data.
-# On the first run, preserve an existing local faq.db if one exists.
-DATA_DIR = "/data" if os.path.isdir("/data") else os.path.dirname(os.path.abspath(__file__))
-DATABASE_FILE = os.path.join(DATA_DIR, "faq.db")
-LOCAL_DATABASE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "faq.db")
-if DATABASE_FILE != LOCAL_DATABASE_FILE and not os.path.exists(DATABASE_FILE) and os.path.exists(LOCAL_DATABASE_FILE):
-    shutil.copy2(LOCAL_DATABASE_FILE, DATABASE_FILE)
-
+DATABASE_FILE = "faq.db"
 BACKUP_FOLDER = "backups"
 
 intents = discord.Intents.default()
@@ -119,7 +111,7 @@ load_default_faqs()
 # One-time FAQ restoration helper.
 # Put faq_backup_20260824_022617.json beside bot.py before deployment.
 # This restores any FAQ entries from the backup that are missing from faq.db.
-RESTORE_BACKUP_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "faq_backup_20260824_022617.json")
+RESTORE_BACKUP_FILE = "faq_backup_20260824_022617.json"
 RESTORE_BACKUP_ON_START = True
 
 def restore_faq_backup():
@@ -542,20 +534,10 @@ async def on_message(message):
     if message.author.bot:
         return
 
-    msg = message.content.strip()
-
-    # FAQ/admin commands stay restricted to the FAQ channel.
-    # Subscription commands use their own admin permission/channel rules,
-    # while members can use !mysubscription anywhere.
-    subscription_message = (
-        msg.lower() in ("!mysubscription", "!my-subscription")
-        or msg.startswith("!subscribe ")
-        or msg.startswith("!unsubscribe ")
-        or msg.startswith("!subscription ")
-        or msg == "!subscribers"
-    )
-    if message.channel.id != ALLOWED_CHANNEL_ID and not subscription_message:
+    if message.channel.id != ALLOWED_CHANNEL_ID:
         return
+
+    msg = message.content.strip()
 
     # ---------------- SUBSCRIPTION COMMANDS ----------------
     if msg.startswith("!subscribe "):
