@@ -152,6 +152,35 @@ def restore_faq_backup():
     except Exception as e:
         print(f"FAQ backup restore failed: {e}")
 
+# The backup is a one-time seed only. It must never resurrect FAQs that an admin
+# intentionally deleted or overwrite FAQs that an admin edited.
+def restore_faq_backup():
+    if not RESTORE_BACKUP_ON_START or not os.path.exists(RESTORE_BACKUP_FILE):
+        return
+    try:
+        cursor.execute("SELECT COUNT(*) AS count FROM faqs")
+        existing_count = cursor.fetchone()["count"]
+        if existing_count > 0:
+            print(f"FAQ backup restore skipped: database already contains {existing_count} FAQ(s).")
+            return
+
+        with open(RESTORE_BACKUP_FILE, "r", encoding="utf-8") as f:
+            backup = json.load(f)
+        if not isinstance(backup, dict):
+            return
+        restored = 0
+        for trigger, answer in backup.items():
+            if isinstance(trigger, str) and isinstance(answer, str) and trigger.strip() and answer.strip():
+                cursor.execute(
+                    "INSERT INTO faqs (trigger, answer, created_at) VALUES (?, ?, ?)",
+                    (trigger.strip(), answer.strip(), datetime.now().isoformat())
+                )
+                restored += 1
+        db.commit()
+        print(f"FAQ backup one-time seed: added {restored} FAQ(s).")
+    except Exception as e:
+        print(f"FAQ backup restore failed: {e}")
+
 restore_faq_backup()
 
 def normalize_text(text):
@@ -239,12 +268,45 @@ def is_on_cooldown(user_id):
     user_cooldowns[user_id] = now
     return False
 
+def _find_management_faq(trigger):
+    """Find an FAQ for admin edit/delete using the same normalization as lookup."""
+    raw = str(trigger).strip()
+    normalized = normalize_text(raw)
+    if not normalized:
+        return None
+
+    # First: exact normalized match. This fixes punctuation/case/spacing differences.
+    cursor.execute("SELECT * FROM faqs ORDER BY id")
+    rows = cursor.fetchall()
+    exact = [row for row in rows if normalize_text(row["trigger"]) == normalized]
+    if exact:
+        # If old data contains duplicate normalized triggers, use the newest record.
+        return exact[-1]
+
+    # Second: allow a very close admin-supplied trigger, but only when unambiguous.
+    scored = []
+    for row in rows:
+        score, sequence, overlap = fuzzy_score(raw, row["trigger"])
+        scored.append((score, sequence, overlap, row))
+    scored.sort(key=lambda x: x[0], reverse=True)
+    if not scored:
+        return None
+    best = scored[0]
+    second = scored[1][0] if len(scored) > 1 else 0.0
+    if (best[0] >= 0.97 and best[1] >= 0.94 and best[2] >= 0.75
+            and best[0] - second >= 0.03):
+        return best[3]
+    return None
+
 def add_faq(trigger, answer):
     trigger = trigger.strip()
     answer = answer.strip()
     if not trigger or not answer:
         return False
     try:
+        # Prevent duplicate triggers that differ only by case/punctuation/spacing.
+        if _find_management_faq(trigger) is not None:
+            return False
         cursor.execute(
             "INSERT INTO faqs (trigger, answer, created_at) VALUES (?, ?, ?)",
             (trigger, answer, datetime.now().isoformat())
@@ -255,19 +317,38 @@ def add_faq(trigger, answer):
         return False
 
 def delete_faq(trigger):
-    cursor.execute("DELETE FROM faqs WHERE trigger = ?", (trigger,))
-    deleted = cursor.rowcount > 0
+    row = _find_management_faq(trigger)
+    if row is None:
+        return False
+    # Delete every row with the same normalized trigger, including legacy duplicates.
+    normalized = normalize_text(trigger)
+    cursor.execute("SELECT id, trigger FROM faqs")
+    ids = [r["id"] for r in cursor.fetchall() if normalize_text(r["trigger"]) == normalized]
+    if ids:
+        cursor.executemany("DELETE FROM faqs WHERE id = ?", [(i,) for i in ids])
+    else:
+        cursor.execute("DELETE FROM faqs WHERE id = ?", (row["id"],))
     db.commit()
-    return deleted
+    return bool(ids)
 
 def edit_faq(trigger, new_answer):
-    cursor.execute(
-        "UPDATE faqs SET answer = ? WHERE trigger = ?",
-        (new_answer.strip(), trigger.strip())
-    )
-    edited = cursor.rowcount > 0
+    new_answer = str(new_answer).strip()
+    if not new_answer:
+        return False
+    row = _find_management_faq(trigger)
+    if row is None:
+        return False
+    # Update the selected canonical row and remove legacy duplicate copies so the
+    # responder cannot continue returning an older answer from another row.
+    normalized = normalize_text(trigger)
+    cursor.execute("SELECT id FROM faqs WHERE id != ?", (row["id"],))
+    duplicate_ids = [r["id"] for r in cursor.fetchall()
+                     if normalize_text(cursor.execute("SELECT trigger FROM faqs WHERE id = ?", (r["id"],)).fetchone()["trigger"]) == normalized]
+    cursor.execute("UPDATE faqs SET answer = ? WHERE id = ?", (new_answer, row["id"]))
+    if duplicate_ids:
+        cursor.executemany("DELETE FROM faqs WHERE id = ?", [(i,) for i in duplicate_ids])
     db.commit()
-    return edited
+    return True
 
 def increment_usage(faq_id):
     cursor.execute("UPDATE faqs SET uses = uses + 1 WHERE id = ?", (faq_id,))
