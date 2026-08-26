@@ -2,7 +2,6 @@ import discord
 import sqlite3
 import os
 import asyncio
-import difflib
 import json
 import time
 import re
@@ -22,9 +21,6 @@ SUBSCRIPTION_EXPIRY_WARNING_HOURS = 24
 SUBSCRIPTION_ADMIN_CHANNEL_ID = 0  # Set to your private admin channel ID; 0 = any admin command channel
 
 COOLDOWN_SECONDS = 2
-FUZZY_THRESHOLD = 0.90
-FUZZY_MARGIN = 0.08
-MIN_WORD_OVERLAP = 0.50
 
 DATABASE_FILE = "faq.db"
 BACKUP_FOLDER = "backups"
@@ -32,7 +28,6 @@ BACKUP_FOLDER = "backups"
 intents = discord.Intents.default()
 intents.message_content = True
 intents.messages = True
-intents.reactions = True
 
 client = discord.Client(intents=intents)
 
@@ -89,146 +84,127 @@ cursor.execute(
 
 db.commit()
 
-DEFAULT_FAQS = {
-    "Scroll to the section Everything About Sports Betting!, locate the second and third words.": "Expert tips",
-    "Scroll to the section called Changing Regulations, locate the first two words.": "Regulations can",
-    "Scroll to the section called Our Mission, locate the first 2 words": "To help",
-    "Scroll to the section called \"Our Mission\", locate the third and fourth words from the end of the second sentence.": "professional online"
-}
+FAQ_JSON_FILE = "faq_export.json"
 
-def load_default_faqs():
-    for trigger, answer in DEFAULT_FAQS.items():
-        cursor.execute("SELECT id FROM faqs WHERE trigger = ?", (trigger,))
-        if cursor.fetchone() is None:
-            cursor.execute(
-                "INSERT INTO faqs (trigger, answer, created_at) VALUES (?, ?, ?)",
-                (trigger, answer, datetime.now().isoformat())
-            )
-    db.commit()
+# The external JSON is the FAQ master used to populate a fresh/partial database.
+# IMPORTANT:
+# - It is imported only until the full JSON set has been loaded once.
+# - After that, faq.db is authoritative, so !edit / !del / !add changes persist.
+# - This prevents deleted or edited FAQs from being resurrected on every restart.
 
-load_default_faqs()
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS bot_meta (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+)
+""")
+db.commit()
 
-# One-time FAQ restoration helper.
-# Put faq_backup_20260824_022617.json beside bot.py before deployment.
-# This restores any FAQ entries from the backup that are missing from faq.db.
-RESTORE_BACKUP_FILE = "faq_backup_20260824_022617.json"
-RESTORE_BACKUP_ON_START = True
-
-def restore_faq_backup():
-    if not RESTORE_BACKUP_ON_START or not os.path.exists(RESTORE_BACKUP_FILE):
-        return
-    try:
-        with open(RESTORE_BACKUP_FILE, "r", encoding="utf-8") as f:
-            backup = json.load(f)
-
-        if not isinstance(backup, dict):
-            print("FAQ backup restore skipped: backup is not a dictionary.")
-            return
-
-        restored = 0
-        skipped = 0
-        for trigger, answer in backup.items():
-            if not isinstance(trigger, str) or not isinstance(answer, str):
-                skipped += 1
-                continue
-            trigger = trigger.strip()
-            answer = answer.strip()
-            if not trigger or not answer:
-                skipped += 1
-                continue
-
-            cursor.execute("SELECT id FROM faqs WHERE trigger = ?", (trigger,))
-            if cursor.fetchone() is None:
-                cursor.execute(
-                    "INSERT INTO faqs (trigger, answer, created_at) VALUES (?, ?, ?)",
-                    (trigger, answer, datetime.now().isoformat())
-                )
-                restored += 1
-
-        db.commit()
-        cursor.execute("SELECT COUNT(*) AS count FROM faqs")
-        total = cursor.fetchone()["count"]
-        print(f"FAQ backup restore: added {restored}, skipped {skipped}, total FAQs: {total}")
-    except Exception as e:
-        print(f"FAQ backup restore failed: {e}")
-
-# The backup is a one-time seed only. It must never resurrect FAQs that an admin
-# intentionally deleted or overwrite FAQs that an admin edited.
-def restore_faq_backup():
-    if not RESTORE_BACKUP_ON_START or not os.path.exists(RESTORE_BACKUP_FILE):
-        return
-    try:
-        cursor.execute("SELECT COUNT(*) AS count FROM faqs")
-        existing_count = cursor.fetchone()["count"]
-        if existing_count > 0:
-            print(f"FAQ backup restore skipped: database already contains {existing_count} FAQ(s).")
-            return
-
-        with open(RESTORE_BACKUP_FILE, "r", encoding="utf-8") as f:
-            backup = json.load(f)
-        if not isinstance(backup, dict):
-            return
-        restored = 0
-        for trigger, answer in backup.items():
-            if isinstance(trigger, str) and isinstance(answer, str) and trigger.strip() and answer.strip():
-                cursor.execute(
-                    "INSERT INTO faqs (trigger, answer, created_at) VALUES (?, ?, ?)",
-                    (trigger.strip(), answer.strip(), datetime.now().isoformat())
-                )
-                restored += 1
-        db.commit()
-        print(f"FAQ backup one-time seed: added {restored} FAQ(s).")
-    except Exception as e:
-        print(f"FAQ backup restore failed: {e}")
-
-restore_faq_backup()
 
 def normalize_text(text):
     text = str(text).lower().strip().replace("```", "").replace("`", "")
-    replacements = {"\u2018":"'", "\u2019":"'", "\u201c":'"', "\u201d":'"',
-                    "\u2013":"-", "\u2014":"-", "\u00a0":" "}
+    replacements = {
+        "\u2018": "'", "\u2019": "'", "\u201c": '"', "\u201d": '"',
+        "\u2013": "-", "\u2014": "-", "\u00a0": " "
+    }
     for old, new in replacements.items():
         text = text.replace(old, new)
     text = re.sub(r"[^\w\s]", " ", text, flags=re.UNICODE)
     return " ".join(text.split())
 
 
-def word_set(text):
-    return set(normalize_text(text).split())
+def load_faq_json():
+    """Load faq_export.json and return its trigger -> answer dictionary."""
+    if not os.path.exists(FAQ_JSON_FILE):
+        print(f"ERROR: {FAQ_JSON_FILE} was not found beside bot.py.")
+        return None
+
+    try:
+        with open(FAQ_JSON_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        if not isinstance(data, dict) or not data:
+            print(f"ERROR: {FAQ_JSON_FILE} is empty or is not a JSON object.")
+            return None
+
+        cleaned = {}
+        for trigger, answer in data.items():
+            if not isinstance(trigger, str) or not isinstance(answer, str):
+                continue
+            trigger = trigger.strip()
+            answer = answer.strip()
+            if trigger and answer:
+                cleaned[trigger] = answer
+
+        print(f"Loaded {len(cleaned)} FAQ triggers from {FAQ_JSON_FILE}.")
+        return cleaned
+
+    except Exception as e:
+        print(f"ERROR loading {FAQ_JSON_FILE}: {e}")
+        return None
 
 
-def fuzzy_score(a, b):
-    na, nb = normalize_text(a), normalize_text(b)
-    sequence = difflib.SequenceMatcher(None, na, nb).ratio()
-    wa, wb = word_set(a), word_set(b)
-    overlap = len(wa & wb) / max(len(wa), len(wb)) if wa and wb else 0.0
-    return sequence * 0.70 + overlap * 0.30, sequence, overlap
-
-
-def find_faq(question):
-    """Return an FAQ only when the user's question matches a stored trigger.
-
-    FAQ lookup is intentionally exact-after-normalization. This prevents the bot
-    from guessing a different FAQ when a user asks something that is not one of
-    the configured questions. Normalization still allows harmless differences in
-    case, punctuation, and spacing.
+def import_json_faqs_once():
     """
-    cursor.execute("SELECT * FROM faqs ORDER BY id")
-    faqs = cursor.fetchall()
-    nq = normalize_text(question)
+    Import all missing FAQ entries from faq_export.json.
 
-    if not nq:
-        return None, 0.0
+    This is a one-time migration for the current database. Once the complete
+    JSON set exists in faq.db, a marker is written and future restarts do not
+    re-import deleted/edited entries.
+    """
+    master = load_faq_json()
+    if master is None:
+        return
 
-    for faq in faqs:
-        if nq == normalize_text(faq["trigger"]):
-            return faq, 1.0
+    cursor.execute(
+        "SELECT value FROM bot_meta WHERE key = 'faq_json_import_v1'"
+    )
+    if cursor.fetchone():
+        return
 
-    # IMPORTANT: Do not use fuzzy matching for user FAQ lookup.
-    # A non-matching question must be treated as unanswered instead of
-    # returning an unrelated FAQ.
-    return None, 0.0
+    cursor.execute("SELECT trigger FROM faqs")
+    existing = {row["trigger"] for row in cursor.fetchall()}
 
+    imported = 0
+    skipped = 0
+
+    for trigger, answer in master.items():
+        if trigger in existing:
+            continue
+
+        try:
+            cursor.execute(
+                "INSERT INTO faqs (trigger, answer, created_at) VALUES (?, ?, ?)",
+                (trigger, answer, datetime.now().isoformat())
+            )
+            existing.add(trigger)
+            imported += 1
+        except sqlite3.IntegrityError:
+            skipped += 1
+
+    db.commit()
+
+    cursor.execute("SELECT COUNT(*) AS count FROM faqs")
+    total = cursor.fetchone()["count"]
+
+    if total >= len(master):
+        cursor.execute(
+            "INSERT OR REPLACE INTO bot_meta (key, value) VALUES (?, ?)",
+            ("faq_json_import_v1", datetime.now().isoformat())
+        )
+        db.commit()
+        print(
+            f"FAQ JSON import completed: added {imported}, "
+            f"skipped {skipped}, total FAQs: {total}"
+        )
+    else:
+        print(
+            f"FAQ JSON import incomplete: added {imported}, "
+            f"skipped {skipped}, total FAQs: {total}/{len(master)}"
+        )
+
+
+import_json_faqs_once()
 
 def is_admin(member):
     if not isinstance(member, discord.Member):
@@ -263,45 +239,21 @@ def is_on_cooldown(user_id):
     user_cooldowns[user_id] = now
     return False
 
-def _find_management_faq(trigger):
-    """Find an FAQ for admin edit/delete using the same normalization as lookup."""
-    raw = str(trigger).strip()
-    normalized = normalize_text(raw)
-    if not normalized:
-        return None
-
-    # First: exact normalized match. This fixes punctuation/case/spacing differences.
-    cursor.execute("SELECT * FROM faqs ORDER BY id")
-    rows = cursor.fetchall()
-    exact = [row for row in rows if normalize_text(row["trigger"]) == normalized]
-    if exact:
-        # If old data contains duplicate normalized triggers, use the newest record.
-        return exact[-1]
-
-    # Second: allow a very close admin-supplied trigger, but only when unambiguous.
-    scored = []
-    for row in rows:
-        score, sequence, overlap = fuzzy_score(raw, row["trigger"])
-        scored.append((score, sequence, overlap, row))
-    scored.sort(key=lambda x: x[0], reverse=True)
-    if not scored:
-        return None
-    best = scored[0]
-    second = scored[1][0] if len(scored) > 1 else 0.0
-    if (best[0] >= 0.97 and best[1] >= 0.94 and best[2] >= 0.75
-            and best[0] - second >= 0.03):
-        return best[3]
-    return None
-
 def add_faq(trigger, answer):
     trigger = trigger.strip()
     answer = answer.strip()
     if not trigger or not answer:
         return False
+
+    normalized = normalize_text(trigger)
+    if not normalized:
+        return False
+
+    cursor.execute("SELECT trigger FROM faqs")
+    if any(normalize_text(row["trigger"]) == normalized for row in cursor.fetchall()):
+        return False
+
     try:
-        # Prevent duplicate triggers that differ only by case/punctuation/spacing.
-        if _find_management_faq(trigger) is not None:
-            return False
         cursor.execute(
             "INSERT INTO faqs (trigger, answer, created_at) VALUES (?, ?, ?)",
             (trigger, answer, datetime.now().isoformat())
@@ -311,49 +263,42 @@ def add_faq(trigger, answer):
     except sqlite3.IntegrityError:
         return False
 
-def delete_faq(trigger):
-    row = _find_management_faq(trigger)
-    if row is None:
-        return False
-    # Delete every row with the same normalized trigger, including legacy duplicates.
+def _matching_faq_rows(trigger):
     normalized = normalize_text(trigger)
-    cursor.execute("SELECT id, trigger FROM faqs")
-    ids = [r["id"] for r in cursor.fetchall() if normalize_text(r["trigger"]) == normalized]
-    if ids:
-        cursor.executemany("DELETE FROM faqs WHERE id = ?", [(i,) for i in ids])
-    else:
-        cursor.execute("DELETE FROM faqs WHERE id = ?", (row["id"],))
+    if not normalized:
+        return []
+    cursor.execute("SELECT * FROM faqs ORDER BY id")
+    return [row for row in cursor.fetchall()
+            if normalize_text(row["trigger"]) == normalized]
+
+def delete_faq(trigger):
+    rows = _matching_faq_rows(trigger)
+    if not rows:
+        return False
+    ids = [row["id"] for row in rows]
+    cursor.executemany("DELETE FROM faqs WHERE id = ?", [(faq_id,) for faq_id in ids])
     db.commit()
-    return bool(ids)
+    return True
 
 def edit_faq(trigger, new_answer):
-    new_answer = str(new_answer).strip()
+    new_answer = new_answer.strip()
     if not new_answer:
         return False
-    row = _find_management_faq(trigger)
-    if row is None:
+    rows = _matching_faq_rows(trigger)
+    if not rows:
         return False
-    # Update the selected canonical row and remove legacy duplicate copies so the
-    # responder cannot continue returning an older answer from another row.
-    normalized = normalize_text(trigger)
-    cursor.execute("SELECT id FROM faqs WHERE id != ?", (row["id"],))
-    duplicate_ids = [r["id"] for r in cursor.fetchall()
-                     if normalize_text(cursor.execute("SELECT trigger FROM faqs WHERE id = ?", (r["id"],)).fetchone()["trigger"]) == normalized]
-    cursor.execute("UPDATE faqs SET answer = ? WHERE id = ?", (new_answer, row["id"]))
-    if duplicate_ids:
-        cursor.executemany("DELETE FROM faqs WHERE id = ?", [(i,) for i in duplicate_ids])
+
+    # Keep the newest matching row as the canonical FAQ and remove stale duplicates.
+    keep = rows[-1]
+    cursor.execute("UPDATE faqs SET answer = ? WHERE id = ?", (new_answer, keep["id"]))
+    stale_ids = [(row["id"],) for row in rows[:-1]]
+    if stale_ids:
+        cursor.executemany("DELETE FROM faqs WHERE id = ?", stale_ids)
     db.commit()
     return True
 
 def increment_usage(faq_id):
     cursor.execute("UPDATE faqs SET uses = uses + 1 WHERE id = ?", (faq_id,))
-    db.commit()
-
-def add_feedback(faq_id, positive):
-    if positive:
-        cursor.execute("UPDATE faqs SET likes = likes + 1 WHERE id = ?", (faq_id,))
-    else:
-        cursor.execute("UPDATE faqs SET dislikes = dislikes + 1 WHERE id = ?", (faq_id,))
     db.commit()
 
 def log_unanswered(message):
@@ -567,43 +512,6 @@ async def on_ready():
 
     if not hasattr(client, "subscription_task"):
         client.subscription_task = asyncio.create_task(subscription_expiry_loop())
-
-@client.event
-async def on_raw_reaction_add(payload):
-    if payload.user_id == client.user.id:
-        return
-    if payload.channel_id != ALLOWED_CHANNEL_ID:
-        return
-
-    emoji = str(payload.emoji)
-    if emoji not in ["👍", "👎"]:
-        return
-
-    channel = client.get_channel(payload.channel_id)
-    if channel is None:
-        return
-
-    try:
-        message = await channel.fetch_message(payload.message_id)
-    except:
-        return
-
-    if not message.embeds:
-        return
-
-    for embed in message.embeds:
-        if not embed.footer:
-            continue
-
-        footer_text = embed.footer.text or ""
-        if not footer_text.startswith("FAQ_ID:"):
-            continue
-
-        try:
-            faq_id = int(footer_text.replace("FAQ_ID:", ""))
-            add_feedback(faq_id, emoji == "👍")
-        except:
-            pass
 
 @client.event
 async def on_message(message):
@@ -1061,10 +969,7 @@ async def on_message(message):
             return
 
         cursor.execute("""
-            SELECT
-                SUM(uses) AS total_uses,
-                SUM(likes) AS total_likes,
-                SUM(dislikes) AS total_dislikes
+            SELECT SUM(uses) AS total_uses
             FROM faqs
         """)
         totals = cursor.fetchone()
@@ -1078,9 +983,7 @@ async def on_message(message):
         popular = cursor.fetchall()
 
         description = (
-            f"📊 **Total answers:** {totals['total_uses'] or 0}\n"
-            f"👍 **Likes:** {totals['total_likes'] or 0}\n"
-            f"👎 **Dislikes:** {totals['total_dislikes'] or 0}\n\n"
+            f"📊 **Total answers:** {totals['total_uses'] or 0}\n\n"
             "**Most Asked FAQs:**\n"
         )
 
@@ -1152,12 +1055,6 @@ async def on_message(message):
             embed=embed,
             mention_author=False
         )
-
-        try:
-            await reply_msg.add_reaction("👍")
-            await reply_msg.add_reaction("👎")
-        except:
-            pass
 
         asyncio.create_task(delete_after(message, 10))
         asyncio.create_task(delete_after(reply_msg, 10))
