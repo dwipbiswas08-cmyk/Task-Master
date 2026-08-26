@@ -108,139 +108,90 @@ def load_default_faqs():
 
 load_default_faqs()
 
-# Safe one-time FAQ seed.
-# The JSON is used ONLY to initialize a brand-new FAQ database.
-# After initialization, edits/deletions/additions in faq.db are authoritative.
-# This prevents deleted or edited FAQs from being resurrected on restart.
+# One-time FAQ restoration helper.
+# Put faq_backup_20260824_022617.json beside bot.py before deployment.
+# This restores any FAQ entries from the backup that are missing from faq.db.
 RESTORE_BACKUP_FILE = "faq_backup_20260824_022617.json"
+RESTORE_BACKUP_ON_START = True
 
-# The 198-FAQ master is embedded so deployment does NOT depend on the JSON
-# file being uploaded separately to Railway.
-MASTER_FAQ_COUNT = 198
-MASTER_FAQS = {'Scroll to the section Everything About Sports Betting!, locate the second and third words.': 'Expert tips', 'Scroll to the section called Changing Regulations, locate the first two words.': 'Regulations can', 'Scroll to the section called Our Mission, locate the first 2 words': 'To help', 'Scroll to the section called "Our Mission", locate the third and fourth words from the end of the second sentence.': 'professional online', 'Scroll to the section called "Useful Links", locate the last 2 words.': 'Complaints Policy', 'Scroll to the section called "Strategies & Bankroll Management When Betting with Crypto", then to the sub-section "Understand Volatility", locate the sixth, seventh, eighth, and ninth words of the first sentence.': 'move in price quickly', 'Scroll to the section called "Strategies & Bankroll Management When Betting with Crypto", then to the sub-section "Understand Volatility", locate the last three words of the second sentence.': 'one volatile coin', 'Scroll to the section called "Years of Research", locate the last 2 words.': 'and experience', 'Scroll to the section called "We Offer Knowledge & Education", locate the second and third words of the second sentence.': 'clear guides', 'Scroll to the section called "Written Articles", locate the sixth and seventh words of the description.': 'diverse topics', 'Scroll to the section called "Reload Bonuses", locate the first two words.': 'Once the', 'Scroll to the section called "Avoid Chasing Losses", locate the first two words of the third sentence.': 'if your', 'Scroll to the section "About SmartBettingGuide", locate the words between "find" and "betting" in the last sentence.': 'perfect sports', 'Scroll to the section "About SmartBettingGuide", locate the fourth and fifth words of the third sentence.': 'niche betting', 'Scroll to the section called "Betting Ratings", locate the first 2 words.': 'Crypto Betting', 'Scroll to the section called "Hours of Hands-on Testing", locate the first 2 words.': 'We spend', 'Scroll to the section called "Meet Our Expert Team", locate the first 2 words.': 'Zigmas Pekarskas', 'Scroll to the section called "Written Articles", locate the last 2 words.': 'and engaged', 'Scroll to the section called "About SmartBettingGuide", locate the last 2 words.': 'your needs', 'Scroll to the section called Professional Experts, locate the ninth and tenth words of the description.': 'specialized knowledge', 'Scroll to the section called Betting Bonuses, locate the last 2 words.': 'Reload bonuses', 'Scroll to the section called Our Mission, locate the last two words of the description.': 'smarter betting.', 'Scroll to the section called How Do We Rate Top Asian Betting Sites?, then to the sub-section Odds Comparison, and locate the last two words.': 'Live betting', 'Scroll to the section called Our Mission, locate the last two words of the first sentence.': 'better choices', 'Scroll to the section called Stay Updated About Sports Betting and locate the fourth and fifth words.': 'sports predictions', 'Scroll to the section called Data Research, locate the last 2 words': 'withdrawal speed', 'Scroll to the section called Live & In-Play Betting, locate the last two words of the first sentence.': 'crypto payments', 'Scroll to the section called Markets at the Crypto and Bitcoin Sports Betting Websites, locate the fourth and fifth words of the first sentence.': 'sports markets', 'Scroll to the section called Security & Safety in Top Crypto Betting Sites, locate the words between "use" and "and" in the Use a VPN carefully bullet.': 'trusted providers', 'Scroll to the section called Growth of Crypto Sports Betting: What Will We See in the Future?, locate the last two words of the Metaverse Betting row.': 'social features', 'Scroll to the section called Bonuses Betting Requirements in the Best Cryptocurrency Betting Sites, locate the words between "your" and "and" in the first bullet point.': 'balance steady', 'Scroll to the section called Bonuses and Promotions, locate the last two words of the first sentence.': 'careful look.', 'Scroll to the section called Bonuses Betting Requirements in the Best Cryptocurrency Betting Sites, locate the last two words of the Avoid switching coins bullet point.': 'reset progress', 'Scroll to the section called Odds Boosts, locate the first two words.': 'Alongside cashback,', 'Scroll to the section called Football Betting Options, locate the third and fourth words of the third sentence.': 'same time,', 'Find the account description and locate the first 2 words in it.': 'SmartbettingGuide is', 'Scroll to the section called Traditional Sports Markets, locate the words between "like" and "usually".': 'player props', 'Scroll to the section called Plan for Fees and Network Speeds and locate the first two words.': 'Different networks', 'Scroll to the section called Supported Cryptocurrencies & Payment Methods, locate the first two words.': 'Best crypto', 'Scroll to the section called Odds Fairness, locate the last three words.': 'keeps margins reasonable.', 'Scroll to the section called What is Betwinner minimum deposit?, locate the first 2 words.': 'Betwinner mininum', 'Scroll to the section called Cryptocurrency Options, locate the last 2 words.': 'usually irreversible.', 'Scroll to the section called Security Features at Asian Betting Sites and locate the first two words.': 'Security features', 'Scroll to the section called Keep Stakes Consistent, locate the last 2 words.': 'long-term results.', 'Scroll to the section called Live Betting Tools, locate the words between "the" and "how".': 'odds refresh,', 'Scroll to the section called FAQ about Tennis Handicap Betting, and locate the first two words of the answer to "How does tennis handicap betting work?".': 'Tennis handicap', 'Scroll to the section called "We Offer Knowledge & Education", locate the words between "and" and "help" in the second sentence.': 'Expert recommendations', 'Scroll to the section called "Our Achievements", locate the words between "of" and "to" under "Written Articles".': 'Online betting', 'Scroll to the section called "Bonuses & Promotions Guide at the Best Crypto Betting Sites", locate the last two words.': 'USDT deposits', 'Find "Welcome to http://Pokeriomokykla.com" section and locate the first 2 words.': 'Pokeriomokykla.com is', 'Scroll to the section called "How We Test & Review the Top Crypto Betting Sites", then to the sub-section "Security Practices", locate the second, third, and fourth words of the last sentence.': 'security practices are', 'Scroll to the section called "About Us", locate the first 2 words.': 'our vision', 'Scroll to the section called "Plan for Fees and Network Speeds", locate the last two words of the first paragraph.': 'frequent bettors.', 'Scroll to the section called "Esports Betting Markets", locate the words between "FIFA" and "constantly" in the first paragraph.': 'update odds', 'Scroll to the section called "Major Cryptocurrencies (BTC, ETH, LTC)", locate the last two words of the second sentence.': 'confirmation times.', 'Scroll to the section called "Honest Rating", locate the last 2 words.': 'individual needs', 'Scroll to the section called "Native Platform Tokens", locate the last two words.': 'faster withdrawals.', 'Scroll to the section called "Blockchain Payments", locate the last two words of the description.': 'clearly stated.', 'Scroll to the section called How do I contact 22bet support?, locate the last 2 words.': 'international support', 'Scroll to the section called "Security Practices", locate the first two words.': 'strong security', 'Scroll to the section called "Major Cryptocurrencies (BTC, ETH, LTC)", locate the words between "of" and "or" in the last sentence.': 'small bets', 'Scroll to the section called "Proportional Betting", locate the first two words.': 'Proportional Betting', 'Scroll to the section called "Our Vision", locate the fourth and fifth words of the description.': 'most trusted', 'Scroll to the section called "Most Popular Sports Betting Bonuses for Crypto Bettors", locate the second and third words of the Welcome Bonus description.': 'matched crypto', 'Scroll to the section called "Regulation", locate the last two words.': 'Deposit limits', 'Scroll to the section called "How Do We Rate Top Asian Betting Sites?", then to the sub-section "Mobile Site & App", and locate the last two words.': 'Payment features', 'Scroll to the section called "Hedge With Stablecoins", locate the sixth, seventh, and eighth words.': 'Safest tools for', 'Scroll to the section called "Legal Status of Bitcoin and Crypto Sports Betting", locate the last two words of the first sentence in the second paragraph.': 'Grey area', 'Scroll to the section called "Special & Prediction Markets", locate the words between "results " and "major".': 'stock movements', 'Scroll to the section called "Odds Fairness", locate the two words following "overall" in the last sentence.': 'margin levels', 'Scroll to the section called "Markets at the Crypto and Bitcoin Sports Betting Websites", then to the sub-section "Esports Betting Markets", and locate the first four words of the first sentence.': 'eSports suits crypto bettors', 'Scroll to the section called "Security Features at Asian Betting Sites" and locate the last two words.': 'Bookie betting', 'Scroll to the section called "Traditional & Regional Sports Betting Options", locate the first 2 words.': 'Traditional sports', 'Scroll to the section called "Cricket Betting Options", locate the last two words of the final paragraph.': 'Team strategies', 'Scroll to the section called "Are Asian bookies safe?" and locate the third and fourth words.': 'Asian sports', 'Scroll to the section called "Local Payment Systems", locate the first 2 words.': 'Local payment', 'Scroll to the section called "Mobile Betting: Apps and Mobile Sites in Asia", locate the first 2 words.': 'Best online', 'Scroll to the section called "Event-Based Promotions", locate the first two words.': 'Many asian', 'Scroll to the section called "18+ Only. Play Responsibly." and locate the first two words of the second sentence.': 'If gambling', 'Find the section called "Betting Ratings", locate the third and the fourth words.': 'Best betting', 'Scroll to the section called "Security & Safety in Top Crypto Betting Sites", locate the fourth and fifth words of the instruction.': 'Gives you', 'Scroll to the section called "Is Rolletto available in the UK?", locate the fifth and sixth words.': 'available for', 'Scroll to the section called "Most Popular Sports Betting Bonuses for Crypto Bettors", locate the first two words.': 'This overview', 'Scroll to the section called "Our Story", locate the words between "a" and "among" in the description.': 'small project.', 'Scroll to the section called "Popular Sports and Events at Best Asian Betting Sites", locate the last two words.': 'bookies online', 'Scroll to the section called "Asian Bookmakers: What to Expect?", locate the words between "and" and "accounts" in the Mobile compatibility point.': 'manage their', 'Scroll to the section called "Bonuses & Promotions at the Best Sports Betting Sites Reviewe", locate the last two words.': 'betting sites', 'Scroll to the section called "Stay Updated About Sports Betting" and locate the first two words.': 'Free expert', 'Find the section called "Let`s keep in touch", locate the first field and copy the name of it (1 word).': 'Name', 'Scroll to the section called "How do I create an account on Vave?" and locate the third and fourth words.': 'Create an', 'Find the section called "About SmartBettingGuide", locate the first 2 words in the third sentence.': 'We also', 'Scroll to the section called "Customer Support", locate the last two words of the section.': 'handles them.', 'Scroll to the section called "Bonuses Betting Requirements in the Best Cryptocurrency Betting Sites", locate the last two words of the first sentence.': 'bonus abuse.', 'Scroll to the section called "Responsible Gambling at the Top Crypto Betting Sites", locate the last two words of the description in the Crypto-specific support bullet.': 'these issues.', 'Scroll to the section called "Security & Safety in Top Crypto Betting Sites", locate the first two words of the description in the Move larger winnings bullet.': 'Hardware wallets', 'Scroll to the section called "Pros and Cons of Crypto Betting Sites", then to the sub-section "Pros", locate the last three words of the second point.': 'or card charges.', 'Scroll to the section called "Supported Cryptocurrencies & Payment Methods", then to the sub-section "Fiat On-Ramps (Card, Bank Transfer)", locate the third and fourth words of the last sentence.': 'often have', 'Scroll to the section called "Markets at the Crypto and Bitcoin Sports Betting Websites", locate the words between "of" and "as".': 'sports markets,', 'Scroll to the section called "Are crypto betting sites legal?", and locate the third and fourth words.': 'sites legality', 'Scroll to the section called "How We Test & Review the Top Crypto Betting Sites", then to the sub-section "Range of Markets", and locate the first two words of the last sentence.': 'We evaluate', 'Scroll to the section called "Understanding Betting Odds at Top Sites for Sports Betting", locate the first two words.': 'Betting Odds', 'Scroll to the section called "Fixed Betting", locate the first two words.': 'Fixed betting', 'Scroll to the section called "Bankroll Growth Strategy", locate the first two words.': 'Consider employing', 'Scroll to the section called "Interface Quality & Mobile Betting Platforms", locate the last two words.': 'betting markets.', 'Scroll to the section called "Top 10 Best Crypto Betting Sites by Categories", locate the last two words of the http://BC.Game description.': 'Loyalty Program', 'Scroll to the section called "Asian Betting Features", locate the words between "a" and "with" in the Localized Emphasis point.': 'deep connection', 'Scroll to the section called "Range of Markets", locate the first two words.': 'We first', 'Scroll to the section called "Odds Fairness", locate the words between "the" and "margins" in the last sentence.': 'operator keeps', 'Scroll to the section called "Bonuses Betting Requirements in the Best Cryptocurrency Betting Sites", locate the last two words of the bolded phrase in the Watch the expiry timer bullet point.': 'expiry timer', 'Scroll to the section called "Special & Prediction Markets", locate the words between "traditional" and "making" in the second sentence.': 'novelty bets,', 'Scroll to the section called "Security & Safety in Top Crypto Betting Sites", locate the second and third words.': 'betting sites', 'Scroll to the section called "Understanding Asian Betting Odds & Markets", locate the first two words.': 'Asia sports', 'Scroll to the section called "How Do We Rate Top Asian Betting Sites?", then to the sub-section "Betting Markets", and locate the last two words.': 'major competitions.', 'Scroll to the section called "Regulatory Compliance, Protection & Reliability", locate the first two words.': 'We support', 'Scroll to the section called "Fiat On-Ramps (Card, Bank Transfer)", locate the second and third words of the last sentence.': 'card purchases', 'Scroll to the section called Strategies & Bankroll Management When Betting with Crypto, then to the sub-section Hedge With Stablecoins, and locate the first word of the third sentence.': 'most', 'Scroll to the section called Live Betting and Streaming Capabilities, locate the first two words.': 'Live betting', 'Scroll to the section called Data Research, locate the first 2 words.': 'We collect', 'Scroll to the section called Range of Markets, locate the words between "smaller " and "plus" in the description.': 'niche events,', 'Scroll to the section called Your Trusted Guide to Online Sports Betting, locate the first 2 words.': 'expert reviews', 'Scroll to the section called How do I create an account on Vave? and locate the third and fourth words.': 'Create an', 'Scroll to the section called Monthly Readers, locate the words between "and" and "about" in the description.': 'relevant content', 'Scroll to the section called Our Vision, locate the first 2 words.': 'to be', 'Scroll to the section called Legal Status of Bitcoin and Crypto Sports Betting, locate the last two words of the first sentence.': 'you live.', 'Scroll to the section called Most Popular Sports Betting Bonuses for Crypto Bettors, locate the words between "During" and "or" in the Price Boost Multipliers row.': 'special events', 'Scroll to the section called Popular Sports and Events at Best Asian Betting Sites, locate the fifth and sixth words.': 'influenced by', 'Scroll to the section called Understanding Legal Aspects, locate and copy the first 2 words.': 'While many', 'Scroll to the section called Honest Rating, locate the first 2 words.': 'We deliver', 'Scroll to the section called Free spins, locate the last 2 words.': 'svenska licensen', 'Scroll to the section called Migliori Casino non AAMS App, locate the first 2 words.': 'Abbiamo già', 'Scroll to the section called Popular betting markets for Asian football bookies, locate the sub section called Both Teams to Score (BTTS) and find the first 2 words in it (after a colon).': 'You bet', 'Scroll to the section called Conclusiones, locate the first 2 words.': 'A lo', 'Scroll to the section called Written Articles and find the last 2 words.': 'and engaged', 'Scroll to the section called Payment Methods at Bitcoin and Crypto Casinos, locate the first 2 words in this section.': 'Bitcoin is', 'Find the section called Top Tipsters and locate the first tipster.': 'pariskk25', 'Find the section called Everything About Sports Betting! and locate the last 2 words.': 'your inbox.', 'Find the section called Our Experts and locate the first 2 words in it.': 'Our team', 'Scroll to the section called Pros and Cons of Crypto Betting Sites, then to the sub-section Pros, locate the first three words of the last point.': 'Crypto bonuses tend', 'Scroll to the section called Traditional Sports Markets, locate the words between "like" and "usually" in the second paragraph.': 'player props', 'Scroll to the section called Major Cryptocurrencies (BTC, ETH, LTC), locate the last two words of the second sentence.': 'confirmation times', 'Scroll to the section called Blockchain Payments, locate the fifth and sixth words of the first sentence.': 'the most', 'Scroll to the section called Cashback Offers, locate the last two words of the first paragraph.': 'over time', 'Scroll to the section called Best Poker Rooms in 2026, locate the last 2 words.': 'good rakeback', 'Scroll to the section called Security Practices, locate the last word.': 'List', 'Scroll to the section called Hours of Hands-on Testing, locate the first 2 words.': 'We spend', 'Scroll to the section called Transaction Methods & Withdrawal Efficiency, locate the first two words.': 'Funding your', 'Scroll to the section called Follow predictions and locate the last two words of the first sentence.': 'picks instantly.', 'Scroll to the section called Discover tipsters and locate the last two words.': 'your interests.', 'Scroll to the section called Welcome Packages, locate the last two words.': 'the bonus.', 'Scroll to the section called Bet Early or Very Late, Not in Between, locate the last 2 words.': 'information appears', 'Scroll to the section called Pros and Cons of Crypto Betting Sites, locate the last two words of the third bullet point under Pros.': 'strict limits.', 'Scroll to the section called Crypto-Based Markets, locate the words between "exact" and "at" in the last sentence.': 'market price', 'Scroll to the section called Phone Screening step, locate the first two words of the description.': 'After reviewing', 'Scroll to the section called Are cryptocurrencies available at the Megapari bookmaker?, locate the last two words.': 'and USDC.', 'Scroll to the section called How to Choose Good Crypto Sports Betting Bookmakers, then to the subheading Betting Offers, and locate the first three words.': 'Just like when', 'Scroll to the section called Martingale Strategy, locate the first two words.': 'The Martingale', 'Scroll to the section called Best Bookmaker Selection, locate the first two words.': 'Choose online', 'Scroll to the section called How fast are withdrawals with 22bet online betting?, locate the first 2 words.': '22bet processes', 'In the account description find the last two words of the first sentence.': 'crypto betting.', 'Scroll to the section called Types of Top Telegram Groups Offering Sports Betting Tips and locate the first two words.': 'Different best', 'Scroll to the section called Cons, locate the last two words.': 'Anjouan license', 'Find Welcome to http://Pokeriomokykla.com section and locate the first 2 words.': 'Pokeriomokykla.com is', 'Scroll to the section called Scam Offers & Responsible Betting Among Telegram Tipsters, and locate the fourth and fifth words of the first sentence.': 'can be', 'Scroll to the section called Asian Bookmakers: What to Expect?, locate the words between "and" and "accounts" in the Mobile compatibility point.': 'manage their', 'Scroll to the section called Markets at the Crypto and Bitcoin Sports Betting Websites, then to the sub-section Esports Betting Markets, and locate the first four words of the first sentence.': 'Esports suits crypto bettors', 'Scroll to the section called Track Your Bets, locate the first two words.': 'Maintain a', 'Scroll to the section called Bonuses & Promotions Guide at the Best Crypto Betting Sites, locate the first two words.': 'top crypto', 'Scroll to the section called How We Test & Review the Top Crypto Betting Sites, locate the ninth and tenth words of the first sentence.': 'real player', 'Scroll to the section called Use bonuses, locate the first two words.': 'Taking advantage', 'Scroll to the section called Most Popular Sports Betting Bonuses for Crypto Bettors, locate the words between "after" and "threshold" in the fifth row of the When You Receive It column.': 'hitting a', 'Scroll to the section called Best Crypto Sports Betting Sites: Expert In-Depth Analysis, locate the first word.': 'here', 'Scroll to the section called Popular betting markets for Asian football bookies, locate the third and fourth words of the Half-Time/ Full-Time Result point.': 'both the', 'Scroll to the section called Plan for Fees and Network Speeds, locate the third and fourth words of the second paragraph.': 'deposit or', 'Scroll to the section called Types of Top Telegram Groups Offering Sports Betting Tips, and locate the fifth and sixth words of the first sentence.': 'on Telegram', 'Scroll to the section called Top 10 Best Crypto Betting Sites by Categories, and locate the fourth word.': 'Crypto', 'Scroll to the section called Traditional & Regional Sports Betting Options, locate the first two words.': 'Traditional sports', 'Scroll to the section called Security Practices, locate the last two words of the section.': 'our list.', 'Scroll to the section called Our Story, locate the words between "a" and "among" in the description.': 'small project.', 'Scroll to the section called Security & Safety in Top Crypto Betting Sites, locate the words between "audited" and "so" in the Use only verified DeFi platforms bullet.': 'smart contracts', 'Scroll to the section called Legal Status of Bitcoin and Crypto Sports Betting and locate the first two words.': 'The legal', 'Scroll to the section called Monthly Readers, locate the first 2 words.': 'Each month', 'Scroll to the section called Everything About Sports Betting!, locate the last 2 words.': 'your inbox', 'Scroll to the section called Monthly Readers, locate the last 2 words.': 'betting sites.', 'Scroll to the section called Popular Sports and Events at Best Asian Betting Sites, locate the last two words of the introductory paragraph.': 'live betting', 'Scroll to the section called Bonuses and Betting Requirements in the Best Cryptocurrency Betting Sites, locate the words between "your" and "and" in the Use smaller bets bullet point.': 'balance steady', 'Scroll to the section called Range of Markets, locate the last two words.': 'match times', 'Scroll to the section called Years of Research, locate the first 2 words.': 'With more', 'Scroll to the section called Top 10 Best Crypto Betting Sites by Categories, locate the last two words of the 22Bet description.': 'Best Odds', 'Scroll to the section called Our Mission, locate the words between "clear " and "of" in the second sentence.': 'realistic view', 'Scroll to the section called Hours of Hands-on Testing, locate the first two words of the description.': 'We spend', 'Scroll to the section called What is a No KYC Casino?, locate the first 2 words.': 'A no', 'Scroll to the section called Kan ik met iDEAL betalen bij een casino zonder Cruks?, locate the last 2 words.': 'onze toplijst.', 'Scroll to the section called Snellere registratie zonder DigiD, locate the first 2 words.': 'Bij buitenlandse', 'Scroll to the Phone Screening step, locate the first two words of the description.': 'After reviewing', 'Scroll to the section called Assess Playing Styles & Matchups and locate the last two words.': 'set handicaps', 'Scroll to the section called Esports Betting Markets, locate the words between "FIFA" and "constantly" in the first paragraph.': 'update odds', 'Scroll to the section called Plan for Fees and Network Speeds, locate the last two words of the first paragraph.': 'frequent bettors', 'Scroll to the section called Native Platform Tokens, locate the last two words.': 'faster withdrawals.'}
-
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS bot_meta (
-    key TEXT PRIMARY KEY,
-    value TEXT NOT NULL
-)
-""")
-db.commit()
-
-def _load_master_faqs():
-    # Prefer the external JSON when it exists and is valid; otherwise use the
-    # embedded 198-FAQ master. This makes the deployment self-contained.
-    if os.path.exists(RESTORE_BACKUP_FILE):
-        try:
-            with open(RESTORE_BACKUP_FILE, "r", encoding="utf-8") as f:
-                backup = json.load(f)
-            if isinstance(backup, dict) and backup:
-                return backup, "external"
-        except Exception as e:
-            print(f"External FAQ master could not be loaded: {e}")
-
-    return MASTER_FAQS, "embedded"
-
-def repair_initial_faq_seed_once():
-    # This migration repairs the earlier bad deployment where the JSON was
-    # missing on Railway and only the 4 DEFAULT_FAQS were inserted.
-    #
-    # It runs ONLY until the initial 198-master migration succeeds. After that,
-    # normal !edit / !del / !add changes remain authoritative and are never
-    # resurrected on restart.
-    cursor.execute(
-        "SELECT value FROM bot_meta WHERE key = 'faq_master_v2_repaired'"
-    )
-    if cursor.fetchone():
+def restore_faq_backup():
+    if not RESTORE_BACKUP_ON_START or not os.path.exists(RESTORE_BACKUP_FILE):
         return
+    try:
+        with open(RESTORE_BACKUP_FILE, "r", encoding="utf-8") as f:
+            backup = json.load(f)
 
-    cursor.execute("SELECT COUNT(*) AS count FROM faqs")
-    current_count = cursor.fetchone()["count"]
+        if not isinstance(backup, dict):
+            print("FAQ backup restore skipped: backup is not a dictionary.")
+            return
 
-    # If the database already contains at least the complete 198 master set,
-    # don't touch it.
-    if current_count >= MASTER_FAQ_COUNT:
-        cursor.execute(
-            "INSERT OR REPLACE INTO bot_meta (key, value) VALUES (?, ?)",
-            ("faq_master_v2_repaired", datetime.now().isoformat())
-        )
+        restored = 0
+        skipped = 0
+        for trigger, answer in backup.items():
+            if not isinstance(trigger, str) or not isinstance(answer, str):
+                skipped += 1
+                continue
+            trigger = trigger.strip()
+            answer = answer.strip()
+            if not trigger or not answer:
+                skipped += 1
+                continue
+
+            cursor.execute("SELECT id FROM faqs WHERE trigger = ?", (trigger,))
+            if cursor.fetchone() is None:
+                cursor.execute(
+                    "INSERT INTO faqs (trigger, answer, created_at) VALUES (?, ?, ?)",
+                    (trigger, answer, datetime.now().isoformat())
+                )
+                restored += 1
+
         db.commit()
-        print(f"FAQ master migration not needed: database has {current_count} FAQs.")
+        cursor.execute("SELECT COUNT(*) AS count FROM faqs")
+        total = cursor.fetchone()["count"]
+        print(f"FAQ backup restore: added {restored}, skipped {skipped}, total FAQs: {total}")
+    except Exception as e:
+        print(f"FAQ backup restore failed: {e}")
+
+# The backup is a one-time seed only. It must never resurrect FAQs that an admin
+# intentionally deleted or overwrite FAQs that an admin edited.
+def restore_faq_backup():
+    if not RESTORE_BACKUP_ON_START or not os.path.exists(RESTORE_BACKUP_FILE):
         return
+    try:
+        cursor.execute("SELECT COUNT(*) AS count FROM faqs")
+        existing_count = cursor.fetchone()["count"]
+        if existing_count > 0:
+            print(f"FAQ backup restore skipped: database already contains {existing_count} FAQ(s).")
+            return
 
-    backup = _load_master_faqs()
-    if not isinstance(backup[0], dict):
-        print("FAQ master migration aborted: master data is not a dictionary.")
-        return
-
-    master, source = backup
-    restored = 0
-    skipped = 0
-
-    # Match the master by the exact stored trigger. This preserves all 198
-    # source entries even when two source questions normalize to the same text.
-    cursor.execute("SELECT trigger FROM faqs")
-    existing_exact = {row["trigger"] for row in cursor.fetchall()}
-
-    for trigger, answer in master.items():
-        if not isinstance(trigger, str) or not isinstance(answer, str):
-            skipped += 1
-            continue
-
-        trigger = trigger.strip()
-        answer = answer.strip()
-        if not trigger or not answer:
-            skipped += 1
-            continue
-
-        if trigger in existing_exact:
-            continue
-
-        try:
-            cursor.execute(
-                "INSERT INTO faqs (trigger, answer, created_at) VALUES (?, ?, ?)",
-                (trigger, answer, datetime.now().isoformat())
-            )
-            existing_exact.add(trigger)
-            restored += 1
-        except sqlite3.IntegrityError:
-            skipped += 1
-
-    db.commit()
-
-    cursor.execute("SELECT COUNT(*) AS count FROM faqs")
-    total = cursor.fetchone()["count"]
-
-    if total >= MASTER_FAQ_COUNT:
-        cursor.execute(
-            "INSERT OR REPLACE INTO bot_meta (key, value) VALUES (?, ?)",
-            ("faq_master_v2_repaired", datetime.now().isoformat())
-        )
+        with open(RESTORE_BACKUP_FILE, "r", encoding="utf-8") as f:
+            backup = json.load(f)
+        if not isinstance(backup, dict):
+            return
+        restored = 0
+        for trigger, answer in backup.items():
+            if isinstance(trigger, str) and isinstance(answer, str) and trigger.strip() and answer.strip():
+                cursor.execute(
+                    "INSERT INTO faqs (trigger, answer, created_at) VALUES (?, ?, ?)",
+                    (trigger.strip(), answer.strip(), datetime.now().isoformat())
+                )
+                restored += 1
         db.commit()
-        print(
-            f"FAQ master migration completed from {source}: "
-            f"added {restored}, skipped {skipped}, total FAQs: {total}"
-        )
-    else:
-        # Do NOT mark migration complete if something prevented the full
-        # master from being restored. It can safely retry on the next restart.
-        print(
-            f"FAQ master migration incomplete from {source}: "
-            f"added {restored}, skipped {skipped}, total FAQs: {total}/"
-            f"{MASTER_FAQ_COUNT}"
-        )
+        print(f"FAQ backup one-time seed: added {restored} FAQ(s).")
+    except Exception as e:
+        print(f"FAQ backup restore failed: {e}")
 
-# Defined before the migration call because the migration uses normalize_text.
+restore_faq_backup()
+
 def normalize_text(text):
     text = str(text).lower().strip().replace("```", "").replace("`", "")
-    replacements = {"\\u2018":"'", "\\u2019":"'", "\\u201c":'"', "\\u201d":'"',
-                    "\\u2013":"-", "\\u2014":"-", "\\u00a0":" "}
+    replacements = {"\u2018":"'", "\u2019":"'", "\u201c":'"', "\u201d":'"',
+                    "\u2013":"-", "\u2014":"-", "\u00a0":" "}
     for old, new in replacements.items():
         text = text.replace(old, new)
-    text = re.sub(r"[^\\w\\s]", " ", text, flags=re.UNICODE)
+    text = re.sub(r"[^\w\s]", " ", text, flags=re.UNICODE)
     return " ".join(text.split())
 
-repair_initial_faq_seed_once()
 
 def word_set(text):
     return set(normalize_text(text).split())
@@ -255,33 +206,28 @@ def fuzzy_score(a, b):
 
 
 def find_faq(question):
+    """Return an FAQ only when the user's question matches a stored trigger.
+
+    FAQ lookup is intentionally exact-after-normalization. This prevents the bot
+    from guessing a different FAQ when a user asks something that is not one of
+    the configured questions. Normalization still allows harmless differences in
+    case, punctuation, and spacing.
+    """
     cursor.execute("SELECT * FROM faqs ORDER BY id")
     faqs = cursor.fetchall()
     nq = normalize_text(question)
+
+    if not nq:
+        return None, 0.0
 
     for faq in faqs:
         if nq == normalize_text(faq["trigger"]):
             return faq, 1.0
 
-    candidates = []
-    for faq in faqs:
-        score, sequence, overlap = fuzzy_score(question, faq["trigger"])
-        candidates.append((score, sequence, overlap, faq))
-
-    if not candidates:
-        return None, 0.0
-
-    candidates.sort(key=lambda x: x[0], reverse=True)
-    best_score, best_sequence, best_overlap, best_faq = candidates[0]
-    second_score = candidates[1][0] if len(candidates) > 1 else 0.0
-
-    if (best_score >= FUZZY_THRESHOLD
-        and best_sequence >= 0.86
-        and best_overlap >= MIN_WORD_OVERLAP
-        and best_score - second_score >= FUZZY_MARGIN):
-        return best_faq, best_score
-
-    return None, best_score
+    # IMPORTANT: Do not use fuzzy matching for user FAQ lookup.
+    # A non-matching question must be treated as unanswered instead of
+    # returning an unrelated FAQ.
+    return None, 0.0
 
 
 def is_admin(member):
@@ -317,21 +263,45 @@ def is_on_cooldown(user_id):
     user_cooldowns[user_id] = now
     return False
 
+def _find_management_faq(trigger):
+    """Find an FAQ for admin edit/delete using the same normalization as lookup."""
+    raw = str(trigger).strip()
+    normalized = normalize_text(raw)
+    if not normalized:
+        return None
+
+    # First: exact normalized match. This fixes punctuation/case/spacing differences.
+    cursor.execute("SELECT * FROM faqs ORDER BY id")
+    rows = cursor.fetchall()
+    exact = [row for row in rows if normalize_text(row["trigger"]) == normalized]
+    if exact:
+        # If old data contains duplicate normalized triggers, use the newest record.
+        return exact[-1]
+
+    # Second: allow a very close admin-supplied trigger, but only when unambiguous.
+    scored = []
+    for row in rows:
+        score, sequence, overlap = fuzzy_score(raw, row["trigger"])
+        scored.append((score, sequence, overlap, row))
+    scored.sort(key=lambda x: x[0], reverse=True)
+    if not scored:
+        return None
+    best = scored[0]
+    second = scored[1][0] if len(scored) > 1 else 0.0
+    if (best[0] >= 0.97 and best[1] >= 0.94 and best[2] >= 0.75
+            and best[0] - second >= 0.03):
+        return best[3]
+    return None
+
 def add_faq(trigger, answer):
     trigger = trigger.strip()
     answer = answer.strip()
     if not trigger or not answer:
         return False
-
-    normalized = normalize_text(trigger)
-    if not normalized:
-        return False
-
-    cursor.execute("SELECT trigger FROM faqs")
-    if any(normalize_text(row["trigger"]) == normalized for row in cursor.fetchall()):
-        return False
-
     try:
+        # Prevent duplicate triggers that differ only by case/punctuation/spacing.
+        if _find_management_faq(trigger) is not None:
+            return False
         cursor.execute(
             "INSERT INTO faqs (trigger, answer, created_at) VALUES (?, ?, ?)",
             (trigger, answer, datetime.now().isoformat())
@@ -341,37 +311,37 @@ def add_faq(trigger, answer):
     except sqlite3.IntegrityError:
         return False
 
-def _matching_faq_rows(trigger):
-    normalized = normalize_text(trigger)
-    if not normalized:
-        return []
-    cursor.execute("SELECT * FROM faqs ORDER BY id")
-    return [row for row in cursor.fetchall()
-            if normalize_text(row["trigger"]) == normalized]
-
 def delete_faq(trigger):
-    rows = _matching_faq_rows(trigger)
-    if not rows:
+    row = _find_management_faq(trigger)
+    if row is None:
         return False
-    ids = [row["id"] for row in rows]
-    cursor.executemany("DELETE FROM faqs WHERE id = ?", [(faq_id,) for faq_id in ids])
+    # Delete every row with the same normalized trigger, including legacy duplicates.
+    normalized = normalize_text(trigger)
+    cursor.execute("SELECT id, trigger FROM faqs")
+    ids = [r["id"] for r in cursor.fetchall() if normalize_text(r["trigger"]) == normalized]
+    if ids:
+        cursor.executemany("DELETE FROM faqs WHERE id = ?", [(i,) for i in ids])
+    else:
+        cursor.execute("DELETE FROM faqs WHERE id = ?", (row["id"],))
     db.commit()
-    return True
+    return bool(ids)
 
 def edit_faq(trigger, new_answer):
-    new_answer = new_answer.strip()
+    new_answer = str(new_answer).strip()
     if not new_answer:
         return False
-    rows = _matching_faq_rows(trigger)
-    if not rows:
+    row = _find_management_faq(trigger)
+    if row is None:
         return False
-
-    # Keep the newest matching row as the canonical FAQ and remove stale duplicates.
-    keep = rows[-1]
-    cursor.execute("UPDATE faqs SET answer = ? WHERE id = ?", (new_answer, keep["id"]))
-    stale_ids = [(row["id"],) for row in rows[:-1]]
-    if stale_ids:
-        cursor.executemany("DELETE FROM faqs WHERE id = ?", stale_ids)
+    # Update the selected canonical row and remove legacy duplicate copies so the
+    # responder cannot continue returning an older answer from another row.
+    normalized = normalize_text(trigger)
+    cursor.execute("SELECT id FROM faqs WHERE id != ?", (row["id"],))
+    duplicate_ids = [r["id"] for r in cursor.fetchall()
+                     if normalize_text(cursor.execute("SELECT trigger FROM faqs WHERE id = ?", (r["id"],)).fetchone()["trigger"]) == normalized]
+    cursor.execute("UPDATE faqs SET answer = ? WHERE id = ?", (new_answer, row["id"]))
+    if duplicate_ids:
+        cursor.executemany("DELETE FROM faqs WHERE id = ?", [(i,) for i in duplicate_ids])
     db.commit()
     return True
 
