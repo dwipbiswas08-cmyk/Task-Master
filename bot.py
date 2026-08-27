@@ -676,10 +676,11 @@ async def on_message(message):
     if message.author.bot:
         return
 
-    if message.channel.id != ALLOWED_CHANNEL_ID:
-        return
-
     msg = message.content.strip()
+
+    # Subscription commands are handled before the FAQ-channel restriction.
+    # This allows admins to manage subscriptions from SUBSCRIPTION_ADMIN_CHANNEL_ID
+    # (or any admin command channel when that setting is 0).
 
     # ---------------- SUBSCRIPTION COMMANDS ----------------
     if msg.startswith("!subscribe "):
@@ -1194,6 +1195,10 @@ async def on_message(message):
         )
 
         await message.channel.send(embed=embed)
+        return
+
+    # Normal FAQ processing remains restricted to the configured FAQ channel.
+    if message.channel.id != ALLOWED_CHANNEL_ID:
         return
 
     if is_on_cooldown(message.author.id):
