@@ -597,40 +597,114 @@ async def notify_subscription_expired(member):
 
 
 async def remove_expired_subscriptions():
-    """Remove the Subscriber role from users whose subscription has expired."""
+    """
+    Safely remove expired subscriptions.
+
+    IMPORTANT: The database record is NOT deleted until we know that the
+    Subscriber role has been removed (or that the role/member no longer
+    exists). If Discord rejects the role removal, the record stays in the
+    database so the next expiry cycle can retry it.
+    """
     cursor.execute("SELECT * FROM subscriptions")
     subscriptions = cursor.fetchall()
 
     for subscription in subscriptions:
-        guild = client.get_guild(subscription["guild_id"])
+        guild_id = subscription["guild_id"]
+        user_id = subscription["user_id"]
+        guild = client.get_guild(guild_id)
+
         if not guild:
+            # We cannot safely modify a guild that is not available. Keep the
+            # record so it can be retried if the guild becomes available.
             continue
 
-        role = get_subscriber_role(guild)
-        member = guild.get_member(subscription["user_id"])
-
         if not subscription_expired(subscription):
+            member = guild.get_member(user_id)
             if member:
                 expires_at = datetime.fromisoformat(subscription["expires_at"])
                 await send_subscription_warning(member, expires_at)
             continue
 
-        if role and member and role in member.roles:
+        role = get_subscriber_role(guild)
+        if role is None:
+            # No Subscriber role exists, so it cannot be granting access.
+            remove_subscription(user_id, guild_id)
+            print(
+                f"SUBSCRIPTION EXPIRED: {user_id} in {guild_id} "
+                "(Subscriber role not found)"
+            )
+            continue
+
+        # Do not rely only on the member cache. Fetch the member from Discord
+        # when necessary so an expired user cannot keep the role simply
+        # because they were not cached.
+        member = guild.get_member(user_id)
+        if member is None:
             try:
-                await member.remove_roles(
-                    role,
-                    reason="Subscription expired"
-                )
-            except discord.HTTPException as e:
+                member = await guild.fetch_member(user_id)
+            except discord.NotFound:
+                # User is no longer in the guild, so they cannot have access
+                # through this guild membership. The database record can go.
+                remove_subscription(user_id, guild_id)
                 print(
-                    f"Could not remove expired Subscriber role "
-                    f"from {subscription['user_id']}: {e}"
+                    f"SUBSCRIPTION EXPIRED: {user_id} left guild {guild_id}"
                 )
+                continue
+            except discord.HTTPException as e:
+                # Temporary Discord/API failure. Keep the record and retry.
+                print(
+                    f"Could not fetch expired subscriber {user_id}: {e}. "
+                    "Will retry next cycle."
+                )
+                continue
 
-        if member:
+        # If the user does not actually have the Subscriber role anymore,
+        # their role-based private-channel access is already gone.
+        if role not in member.roles:
+            remove_subscription(user_id, guild_id)
+            print(
+                f"SUBSCRIPTION EXPIRED: {member} ({user_id}) already had "
+                "no Subscriber role."
+            )
             await notify_subscription_expired(member)
+            continue
 
-        remove_subscription(subscription["user_id"], subscription["guild_id"])
+        # The user still has the role: this is the critical access-removal
+        # operation. Only delete the DB record after this succeeds.
+        try:
+            await member.remove_roles(
+                role,
+                reason="Subscription expired"
+            )
+        except discord.Forbidden as e:
+            print(
+                f"FAILED TO REMOVE EXPIRED Subscriber ROLE from "
+                f"{member} ({user_id}): {e}. "
+                "Check Manage Roles and role hierarchy. Will retry next cycle."
+            )
+            continue
+        except discord.HTTPException as e:
+            print(
+                f"FAILED TO REMOVE EXPIRED Subscriber ROLE from "
+                f"{member} ({user_id}): {e}. Will retry next cycle."
+            )
+            continue
+
+        # Verify the role is actually gone before deleting the subscription.
+        if role in member.roles:
+            print(
+                f"WARNING: Discord reported success but Subscriber role is "
+                f"still present on {member} ({user_id}). Keeping subscription "
+                "record and retrying next cycle."
+            )
+            continue
+
+        remove_subscription(user_id, guild_id)
+        print(
+            f"SUBSCRIPTION EXPIRED: removed Subscriber role from "
+            f"{member} ({user_id}) in guild {guild_id}"
+        )
+        await notify_subscription_expired(member)
 
 
 async def subscription_expiry_loop():
