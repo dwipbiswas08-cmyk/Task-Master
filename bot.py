@@ -690,12 +690,26 @@ async def remove_expired_subscriptions():
             )
             continue
 
-        # Verify the role is actually gone before deleting the subscription.
-        if role in member.roles:
+        # Re-fetch the member from Discord and verify the role is genuinely gone.
+        # Do not trust the cached Member object after a role mutation.
+        try:
+            verified_member = await guild.fetch_member(user_id)
+        except discord.NotFound:
+            remove_subscription(user_id, guild_id)
+            print(f"SUBSCRIPTION EXPIRED: {user_id} left guild {guild_id}")
+            continue
+        except discord.HTTPException as e:
             print(
-                f"WARNING: Discord reported success but Subscriber role is "
-                f"still present on {member} ({user_id}). Keeping subscription "
-                "record and retrying next cycle."
+                f"Could not verify Subscriber role removal for {member} ({user_id}): "
+                f"{e}. Keeping subscription record and retrying next cycle."
+            )
+            continue
+
+        if any(r.id == role.id for r in verified_member.roles):
+            print(
+                f"WARNING: Subscriber role is still present on {verified_member} "
+                f"({user_id}) after removal attempt. Keeping subscription record "
+                "and retrying next cycle."
             )
             continue
 
@@ -743,6 +757,7 @@ async def on_ready():
     print("=" * 50)
 
     if not hasattr(client, "subscription_task"):
+        # Run an expiry pass immediately at startup, then continue every 60 seconds.
         client.subscription_task = asyncio.create_task(subscription_expiry_loop())
 
 @client.event
